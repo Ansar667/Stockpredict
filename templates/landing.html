@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <section class="card hero-card">
+        <div class="hero-grid">
+            <div class="hero-text">
+                <h2>{{ ui["landing_title_text"] }}</h2>
+                <p>{{ ui["landing_subtitle_text"] }}</p>
+                <a class="cta-btn" href="{{ url_for('dashboard', lang=lang) }}">{{ ui["landing_cta"] }}</a>
+            </div>
+            <div class="hero-visual">
+                <div class="preview-header">
+                    <div class="preview-title">
+                        <strong>AAPL</strong>
+                        <span class="preview-range">2023-01-01 → 2024-01-01</span>
+                    </div>
+                    <a class="preview-pill" href="{{ url_for('dashboard', lang=lang) }}">{{ ui["landing_preview_button"] }}</a>
+                </div>
+                <div class="preview-chart-card">
+                    <div class="preview-chart-title">{{ ui["landing_preview_title"] }}</div>
+                    <div class="preview-chart">
+                        <svg viewBox="0 0 360 160" preserveAspectRatio="none" class="preview-chart-svg">
+                            <path class="line-fill" d="M0,120 C40,95 90,85 140,90 C200,95 250,70 300,65 C330,60 360,80 360,160 L0,160 Z" />
+                            <path class="line-close" d="M0,110 C40,80 90,90 140,70 C200,50 250,60 300,45 C330,35 360,50 360,50" />
+                            <path class="line-lstm" d="M0,120 C40,95 90,85 140,90 C200,95 250,70 300,65 C330,60 360,80 360,80" />
+                            <circle class="point-close" cx="70" cy="85" r="4"/>
+                            <circle class="point-close" cx="180" cy="65" r="4"/>
+                            <circle class="point-close" cx="300" cy="45" r="4"/>
+                            <circle class="point-lstm" cx="90" cy="95" r="4"/>
+                            <circle class="point-lstm" cx="210" cy="80" r="4"/>
+                            <circle class="point-lstm" cx="330" cy="78" r="4"/>
+                        </svg>
+                    </div>
+                    <div class="preview-legend">
+                        <div class="legend-items">
+                            <span class="legend-item">
+                                <span class="legend-dot dot-close"></span>{{ ui["close_label"] }}
+                            </span>
+                            <span class="legend-item">
+                                <span class="legend-dot dot-lstm"></span>{{ ui["prediction_label"] }}
+                            </span>
+                        </div>
+                        <div class="preview-metrics">
+                            <span class="metric-pill">MAPE 1.2%</span>
+                            <span class="metric-pill">RMSE 5.3</span>
+                            <span class="metric-pill">MAE 3.8</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="card landing-section audience-section">
+        <h3>{{ ui["landing_audience_title"] }}</h3>
+        <div class="audience-cards">
+            {% for card in ui["landing_audience_cards"] %}
+                <div class="audience-card">
+                    <h4>{{ card.title }}</h4>
+                    <ul class="audience-list">
+                        {% for bullet in card.bullets %}
+                            <li>{{ bullet }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="landing-grid">
+        <section class="card">
+            <h3>{{ ui["landing_how_title"] }}</h3>
+            <ul class="landing-list">
+                {% for item in ui["landing_how_list"] %}
+                    <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </section>
+
+        <section class="card">
+            <h3>{{ ui["landing_features_title"] }}</h3>
+            <ul class="landing-list">
+                {% for item in ui["landing_features_list"] %}
+                    <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </section>
+    </div>
+
+    <section class="card landing-section stack-section">
+        <h3>{{ ui["landing_stack_title"] }}</h3>
+        <p class="landing-text">{{ ui["landing_stack_body"] }}</p>
+        <div class="stack-badges">
+            {% for badge in ui["landing_stack_badges"] %}
+                <span class="stack-badge">{{ badge }}</span>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="card landing-section honesty-note">
+        <h3>{{ ui["landing_honest_title"] }}</h3>
+        <p>{{ ui["landing_honest_text"] }}</p>
+    </section>
+{% endblock %}
+
+{% block state_data %}
+    <script id="app-state" type="application/json">
+        {"rows":[]}
+    </script>
+{% endblock %}

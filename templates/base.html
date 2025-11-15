@@ -1,0 +1,45 @@
+﻿<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ page_title or ui["title"] }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="page" data-theme="light">
+    <div class="layout">
+        <header class="page-header">
+            <div>
+                <h1>{{ ui["title"] }}</h1>
+                <p class="subtitle">{{ ui["subtitle"] }}</p>
+            </div>
+            <div class="toggle-group">
+                <nav class="main-nav">
+                    <a href="{{ url_for('index', lang=lang) }}" class="{{ 'active' if active_route == 'index' else '' }}">{{ ui.get("nav_home", "Home") }}</a>
+                    <a href="{{ url_for('dashboard', lang=lang) }}" class="{{ 'active' if active_route == 'dashboard' else '' }}">{{ ui.get("nav_dashboard", "Dashboard") }}</a>
+                </nav>
+                <div class="lang-toggle" aria-label="{{ ui['language_label'] }}">
+                    {% for code, label in languages %}
+                        <a href="{{ url_for(active_route, lang=code) }}" class="{{ 'active' if lang == code else '' }}">{{ label }}</a>
+                    {% endfor %}
+                </div>
+                <button class="theme-toggle" type="button" data-theme-toggle>
+                    <span>{{ ui["theme_toggle"] }}</span>
+                </button>
+            </div>
+        </header>
+
+        {% block content %}{% endblock %}
+    </div>
+
+    {% block state_data %}
+    <script id="app-state" type="application/json">
+        {"rows":[]}
+    </script>
+    {% endblock %}
+
+    {% block extra_scripts %}
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    {% endblock %}
+</body>
+</html>

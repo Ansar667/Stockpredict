@@ -1,0 +1,20 @@
+{
+  "train_tickers": [
+    "AAPL",
+    "MSFT",
+    "TSLA",
+    "NVDA",
+    "META",
+    "AMZN"
+  ],
+  "start": "2017-11-17",
+  "end": "2025-11-15",
+  "time_steps": 20,
+  "target": "Return",
+  "best_model": "LSTM",
+  "metrics": {
+    "RMSE": 0.02201399337274987,
+    "MAE": 0.015502532765578463,
+    "R2": -0.0009485512389610928
+  }
+}

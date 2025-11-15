@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block extra_head %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+    <div class="content-grid">
+        <section class="main-panel">
+            <div class="card">
+                <form method="post" id="predict-form" action="{{ url_for('dashboard') }}">
+                    <input type="hidden" name="lang" value="{{ lang }}">
+                    <div class="form-grid">
+                        <label>
+                            {{ ui["ticker_label"] }}
+                            <input type="text" name="ticker" list="ticker-suggestions" autocomplete="off" placeholder="AAPL" value="{{ request.form.ticker or '' }}" required>
+                        </label>
+                        <label>
+                            {{ ui["start_label"] }}
+                            <input type="date" name="start" value="{{ request.form.start or '' }}" required>
+                        </label>
+                        <label>
+                            {{ ui["end_label"] }}
+                            <input type="date" name="end" value="{{ request.form.end or '' }}" required>
+                        </label>
+                    </div>
+
+                    <div class="helper-text">{{ ui["quick_title"] }}</div>
+                    <div class="period-buttons" id="period-buttons">
+                        {% for btn in ui["quick_buttons"] %}
+                            <button type="button" data-days="{{ btn.value }}">{{ btn.label }}</button>
+                        {% endfor %}
+                    </div>
+
+                    <div class="helper-text">{{ ui["popular_title"] }}</div>
+                    <div class="chip-row" id="popular-ticker-chips">
+                        {% for ticker in popular_tickers %}
+                            <button type="button" class="chip" data-ticker="{{ ticker.symbol }}">
+                                {{ ticker.symbol }} — {{ ticker.name }}
+                            </button>
+                        {% endfor %}
+                    </div>
+
+                    <p class="helper-text">{{ ui["helper_text"] }}</p>
+
+                    <div class="form-actions">
+                        <button type="submit" class="submit-btn">{{ ui["run_btn"] }}</button>
+                        <button type="button" class="submit-btn submit-outline" id="exportPdfBtn" disabled>{{ ui["export_btn"] }}</button>
+                    </div>
+
+                    <div id="alertContainer">
+                        {% if error %}
+                            <div class="alert alert-error" role="status">
+                                <strong>{{ ui["summary_prefix"] }}.</strong>
+                                <span>{{ error }}</span>
+                            </div>
+                        {% endif %}
+                        {% if summary_text %}
+                            <div class="alert alert-info summary-alert" role="status">
+                                <strong>{{ ui["summary_prefix"] }}.</strong>
+                                <span>{{ summary_text }}</span>
+                            </div>
+                        {% endif %}
+                    </div>
+                </form>
+
+                <datalist id="ticker-suggestions"></datalist>
+            </div>
+
+            <div class="card metric-wrapper" id="metricCard" {% if not summary_metrics %}hidden{% endif %}>
+                <div class="metric-grid" id="summaryMetrics">
+                    {% if summary_metrics %}
+                        {% for metric in summary_metrics %}
+                            <div class="metric-card">
+                                <span>{{ metric.label }}</span>
+                                {% if metric.value is not none %}
+                                    <strong>{{ "%.2f"|format(metric.value) }}</strong>
+                                {% else %}
+                                    <strong>{{ ui["no_data"] }}</strong>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card error-card" id="errorMetricsCard" {% if not model_metrics %}hidden{% endif %}>
+                <div class="error-card-header">
+                    <h3>{{ ui["error_title"] }}</h3>
+                </div>
+                <div class="error-metrics" id="errorMetricsBody">
+                    {% if model_metrics %}
+                        {% for key, stats in model_metrics.items() %}
+                            <div class="error-row">
+                                <strong>{{ key.replace("Pred_", "") }}</strong>
+                                <span>MAPE: {% if stats.mape is not none %}{{ "%.2f"|format(stats.mape) }}%{% else %}—{% endif %}</span>
+                                <span>RMSE: {% if stats.rmse is not none %}{{ "%.2f"|format(stats.rmse) }}{% else %}—{% endif %}</span>
+                                <span>MAE: {% if stats.mae is not none %}{{ "%.2f"|format(stats.mae) }}{% else %}—{% endif %}</span>
+                                <span>MSE: {% if stats.mse is not none %}{{ "%.2f"|format(stats.mse) }}{% else %}—{% endif %}</span>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card chart-card" id="chartCard">
+                <div class="chart-header">
+                    <div class="chart-heading">
+                        <h2>{{ ui["chart_title"] }}</h2>
+                        <p class="caption" data-template="{{ ui['chart_caption'] }}" {% if not table %}hidden{% endif %}>
+                            {{ ui["chart_caption"].format(points=table|length if table else 0) }}
+                        </p>
+                    </div>
+                    <div class="chart-actions">
+                        <div class="range-control">
+                            <span>{{ ui["range_label"] }}</span>
+                            <div class="range-buttons" id="rangeButtons">
+                                <button type="button" data-range="30">30</button>
+                                <button type="button" data-range="60">60</button>
+                                <button type="button" data-range="120">120</button>
+                                <button type="button" data-range="all">{{ ui["table_show_all"] }}</button>
+                            </div>
+                        </div>
+                        <div class="slider-control">
+                            <label for="stepSlider">{{ ui["step_title"] }}: <span id="stepValue">1</span></label>
+                            <input type="range" id="stepSlider" min="1" max="30" value="1">
+                            <small>{{ ui["step_hint"] }}</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-empty" id="chartEmptyState" {% if table %}hidden{% endif %}>
+                    {{ ui["no_data"] }}. {{ ui["chart_empty_hint"] }}
+                </div>
+                <div class="chart-area">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card" id="tableCard">
+                <h2 class="section-title">{{ ui["table_title"] }}</h2>
+                <div class="table-empty" id="tableEmptyState" {% if table %}hidden{% endif %}>
+                    {{ ui["no_data"] }}
+                </div>
+                <div class="table-wrapper" id="tableWrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>{{ ui["close_label"] }}</th>
+                                <th id="predictionHeading">{{ ui["table_prediction_heading"].format(model=prediction_label) }}</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            {% if table %}
+                                {% for row in table %}
+                                    <tr>
+                                        <td>{{ row["Date"] }}</td>
+                                        <td>
+                                            {% if "Close" in row and row["Close"] is not none %}
+                                                <span class="value">{{ "%.2f"|format(row["Close"]) }}</span>
+                                            {% else %}
+                                                <span class="placeholder">{{ ui["no_data"] }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if prediction_column and prediction_column in row and row[prediction_column] is not none %}
+                                                <span class="value">{{ "%.2f"|format(row[prediction_column]) }}</span>
+                                            {% else %}
+                                                <span class="placeholder">{{ ui["no_data"] }}</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            {% endif %}
+                        </tbody>
+                    </table>
+                    <div class="table-actions">
+                        <button type="button" id="expandTableBtn" data-expand="{{ ui.get('table_show_all', 'Show all') }}" data-collapse="{{ ui.get('table_hide', 'Collapse') }}">
+                            {{ ui.get("table_show_all", "Show all") }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <aside class="sidebar">
+            <div class="card recent-card">
+                <h3>{{ ui["recent_title"] }}</h3>
+                <div id="recentEmpty">{{ ui["recent_empty"] }}</div>
+                <ul class="recent-list" id="recentList"></ul>
+            </div>
+            <div class="card">
+                <h3>{{ ui["how_to_title"] }}</h3>
+                <ul class="tips-list">
+                    {% for tip in ui["how_to_list"] %}
+                        <li>{{ tip }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="card">
+                <h3>{{ ui["trending_title"] }}</h3>
+                <div class="popular-list">
+                    {% for ticker in popular_tickers %}
+                        <button type="button" class="popular" data-ticker="{{ ticker.symbol }}">
+                            <strong>{{ ticker.symbol }}</strong>
+                            <span>{{ ticker.name }}</span>
+                        </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </aside>
+    </div>
+{% endblock %}
+
+{% block state_data %}
+    <script id="app-state" type="application/json">
+        {{ {
+            "rows": table or [],
+            "summaryMetrics": summary_metrics or [],
+            "summaryText": summary_text,
+            "error": error,
+            "chartBounds": chart_bounds,
+            "predictionLabel": prediction_label or ui["prediction_label"],
+            "predictionColumn": prediction_column,
+            "predictionHeading": ui["table_prediction_heading"].format(model=prediction_label or ui["prediction_label"]),
+            "closeLabel": ui["close_label"],
+            "noDataLabel": ui["no_data"],
+            "chartEmptyHint": ui["chart_empty_hint"],
+            "summaryPrefix": ui["summary_prefix"],
+            "modelMetrics": model_metrics or {}
+        } | tojson | safe }}
+    </script>
+{% endblock %}
