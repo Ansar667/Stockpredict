@@ -687,6 +687,44 @@ select:focus {
     margin-top: 24px;
 }
 
+.summary-card {
+    margin-top: 18px;
+    padding: 18px 20px;
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    background: rgba(78, 91, 255, 0.06);
+}
+
+.summary-card[hidden] {
+    display: none;
+}
+
+.summary-card-header {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text);
+}
+
+.summary-card p {
+    margin: 0;
+    font-weight: 600;
+    color: inherit;
+}
+
+.summary-card--error {
+    border-color: rgba(240, 68, 56, 0.4);
+    background: rgba(240, 68, 56, 0.08);
+    color: var(--danger);
+}
+
+[data-theme="dark"] .summary-card {
+    background: rgba(78, 91, 255, 0.14);
+}
+
+[data-theme="dark"] .summary-card--error {
+    background: rgba(240, 68, 56, 0.12);
+}
+
 .metric-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -901,10 +939,19 @@ select:focus {
     color: #cfd6ff;
 }
 
+.chart-wrapper {
+    width: 100%;
+    overflow-x: auto;
+}
+
 .chart-area {
     position: relative;
     height: 360px;
     margin-top: 12px;
+}
+
+.chart-wrapper .chart-area {
+    min-width: 640px;
 }
 
 .chart-area canvas {
@@ -926,6 +973,10 @@ select:focus {
 
 .chart-card.is-empty .chart-empty {
     display: flex;
+}
+
+.chart-card.is-empty .chart-wrapper {
+    display: none;
 }
 
 .chart-card.is-empty .chart-area {
@@ -1121,6 +1172,46 @@ tbody tr:hover {
     .content-grid {
         grid-template-columns: 1fr;
     }
+    .sidebar {
+        width: 100%;
+    }
+    .sidebar .card {
+        width: 100%;
+    }
+}
+
+@media (max-width: 768px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+    .form-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .form-actions .submit-btn {
+        width: 100%;
+    }
+    .card {
+        padding: 24px;
+    }
+    .chart-card {
+        padding: 20px;
+    }
+    .chart-actions {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+    .chart-wrapper .chart-area {
+        min-width: 600px;
+    }
+    .table-wrapper table {
+        min-width: 600px;
+    }
+    .chip-row,
+    .period-buttons {
+        justify-content: flex-start;
+    }
 }
 
 @media (max-width: 620px) {
@@ -1130,10 +1221,6 @@ tbody tr:hover {
 
     .card {
         padding: 20px;
-    }
-
-    table {
-        min-width: 520px;
     }
 }
 

@@ -51,16 +51,16 @@
                     <div id="alertContainer">
                         {% if error %}
                             <div class="alert alert-error" role="status">
-                                <strong>{{ ui["summary_prefix"] }}.</strong>
                                 <span>{{ error }}</span>
                             </div>
                         {% endif %}
-                        {% if summary_text %}
-                            <div class="alert alert-info summary-alert" role="status">
-                                <strong>{{ ui["summary_prefix"] }}.</strong>
-                                <span>{{ summary_text }}</span>
-                            </div>
-                        {% endif %}
+                    </div>
+
+                    <div class="summary-card" id="summaryCard" {% if not summary_text %}hidden{% endif %}>
+                        <div class="summary-card-header">
+                            <strong>{{ ui["summary_prefix"] }}</strong>
+                        </div>
+                        <p id="summary-text">{{ summary_text or "" }}</p>
                     </div>
                 </form>
 
@@ -131,8 +131,10 @@
                 <div class="chart-empty" id="chartEmptyState" {% if table %}hidden{% endif %}>
                     {{ ui["no_data"] }}. {{ ui["chart_empty_hint"] }}
                 </div>
-                <div class="chart-area">
-                    <canvas id="priceChart"></canvas>
+                <div class="chart-wrapper">
+                    <div class="chart-area">
+                        <canvas id="priceChart"></canvas>
+                    </div>
                 </div>
             </div>
 
@@ -214,20 +216,6 @@
 
 {% block state_data %}
     <script id="app-state" type="application/json">
-        {{ {
-            "rows": table or [],
-            "summaryMetrics": summary_metrics or [],
-            "summaryText": summary_text,
-            "error": error,
-            "chartBounds": chart_bounds,
-            "predictionLabel": prediction_label or ui["prediction_label"],
-            "predictionColumn": prediction_column,
-            "predictionHeading": ui["table_prediction_heading"].format(model=prediction_label or ui["prediction_label"]),
-            "closeLabel": ui["close_label"],
-            "noDataLabel": ui["no_data"],
-            "chartEmptyHint": ui["chart_empty_hint"],
-            "summaryPrefix": ui["summary_prefix"],
-            "modelMetrics": model_metrics or {}
-        } | tojson | safe }}
+        {{ state_payload | tojson | safe }}
     </script>
 {% endblock %}

@@ -31,6 +31,8 @@ const AppState = (() => {
 })();
 
 const alertContainer = document.getElementById('alertContainer');
+const summaryCard = document.getElementById('summaryCard');
+const summaryTextNode = document.getElementById('summary-text');
 const metricsCard = document.getElementById('metricCard');
 const metricsGrid = document.getElementById('summaryMetrics');
 const tickerField = document.querySelector('input[name="ticker"]');
@@ -50,33 +52,60 @@ const recentEmpty = document.getElementById('recentEmpty');
 const METRIC_LABELS = { mape: 'MAPE', rmse: 'RMSE', mae: 'MAE', mse: 'MSE' };
 const RECENT_STORAGE_KEY = 'stock_forecast_recent';
 const RECENT_LIMIT = 5;
+const FORECAST_ENDPOINT = '/run_forecast';
+const REQUEST_TIMEOUT = 35000;
 let recentItems = [];
 
 const formatNumber = (value, fallback = 'вЂ”') => {
     return typeof value === 'number' && !Number.isNaN(value) ? value.toFixed(2) : fallback;
 };
+const getStateMessage = (key, fallback) => {
+    const state = AppState.get() || {};
+    return state[key] || fallback;
+};
 
 const renderAlerts = (payload) => {
     if (!alertContainer) return;
     alertContainer.innerHTML = '';
-    const prefix = (window.APP_STATE && window.APP_STATE.summaryPrefix) || 'Summary';
-    const appendAlert = (cls, text) => {
-        const wrapper = document.createElement('div');
-        wrapper.className = `alert ${cls}`;
-        wrapper.setAttribute('role', 'status');
-        const strong = document.createElement('strong');
-        strong.textContent = `${prefix}.`;
-        const span = document.createElement('span');
-        span.textContent = text;
-        wrapper.append(strong, span);
-        alertContainer.appendChild(wrapper);
-    };
-    if (payload.error) {
-        appendAlert('alert-error', payload.error);
+    if (!payload || !payload.error) {
+        return;
     }
-    if (payload.summaryText) {
-        appendAlert('alert-info summary-alert', payload.summaryText);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'alert alert-error';
+    wrapper.setAttribute('role', 'status');
+    const span = document.createElement('span');
+    span.textContent = payload.error;
+    wrapper.appendChild(span);
+    alertContainer.appendChild(wrapper);
+};
+
+const updateSummary = (payload = {}) => {
+    if (!summaryCard || !summaryTextNode) return;
+    const state = { ...(AppState.get() || {}), ...(payload || {}) };
+    const summaryValue = state.summaryText || state.summary;
+    const fallbackMessage = state.summaryErrorMessage || 'An error occurred while building the summary.';
+    if (typeof summaryValue === 'string' && summaryValue.trim().length) {
+        summaryTextNode.textContent = summaryValue;
+        summaryCard.hidden = false;
+        summaryCard.classList.remove('summary-card--error');
+        return;
     }
+    if (state.error && fallbackMessage) {
+        summaryTextNode.textContent = fallbackMessage;
+        summaryCard.hidden = false;
+        summaryCard.classList.add('summary-card--error');
+        return;
+    }
+    summaryTextNode.textContent = '';
+    summaryCard.hidden = true;
+    summaryCard.classList.remove('summary-card--error');
+};
+
+const fetchWithTimeout = (url, options = {}, timeoutMs = REQUEST_TIMEOUT) => {
+    const controller = new AbortController();
+    const config = { ...options, signal: controller.signal };
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, config).finally(() => clearTimeout(timer));
 };
 
 const renderMetrics = (metrics) => {
@@ -654,8 +683,10 @@ const triggerPdfDownload = async () => {
     const ticker = tickerInput?.value.trim();
     const start = startInput?.value;
     const end = endInput?.value;
+    const fallbackError = getStateMessage('requestErrorMessage', 'Unable to process the request.');
     if (!ticker || !start || !end) {
-        renderAlerts({ error: 'РЈРєР°Р¶РёС‚Рµ С‚РёРєРµСЂ Рё РїРµСЂРёРѕРґ РїРµСЂРµРґ РІС‹РіСЂСѓР·РєРѕР№ РѕС‚С‡РµС‚Р°.' });
+        renderAlerts({ error: fallbackError });
+        updateSummary({ error: fallbackError });
         return;
     }
     try {
@@ -667,7 +698,7 @@ const triggerPdfDownload = async () => {
         const response = await fetch('/export_pdf', { method: 'POST', body: payload });
         const contentType = response.headers.get('Content-Type') || '';
         if (!response.ok || !contentType.includes('application/pdf')) {
-            let message = 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РѕС‚С‡РµС‚.';
+            let message = fallbackError;
             try {
                 if (contentType.includes('application/json')) {
                     const data = await response.json();
@@ -679,6 +710,7 @@ const triggerPdfDownload = async () => {
                 console.error(err);
             }
             renderAlerts({ error: message });
+            updateSummary({ error: message });
             return;
         }
         const blob = await response.blob();
@@ -695,7 +727,8 @@ const triggerPdfDownload = async () => {
         URL.revokeObjectURL(url);
     } catch (error) {
         console.error(error);
-        renderAlerts({ error: 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РѕС‚С‡РµС‚.' });
+        renderAlerts({ error: fallbackError });
+        updateSummary({ error: fallbackError });
     } finally {
         if (exportBtn) {
             exportBtn.disabled = !(Array.isArray(AppState.get().rows) && AppState.get().rows.length);
@@ -706,6 +739,7 @@ const triggerPdfDownload = async () => {
 const applyState = (payload = {}) => {
     AppState.set(payload);
     renderAlerts(payload);
+    updateSummary(payload);
     renderMetrics(payload.summaryMetrics || []);
     renderTable(payload.rows || [], payload.predictionColumn, payload.predictionHeading);
     chartController.update(payload.rows || []);
@@ -719,19 +753,6 @@ const applyState = (payload = {}) => {
     }
 };
 
-const parsePayloadFromHTML = (html) => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const payloadEl = doc.getElementById('app-state');
-    if (!payloadEl) return null;
-    try {
-        return JSON.parse(payloadEl.textContent || '{}') || {};
-    } catch (error) {
-        console.warn('Unable to parse payload from response', error);
-        return null;
-    }
-};
-
 (function formHandler() {
     const form = document.getElementById('predict-form');
     if (!form) return;
@@ -741,28 +762,49 @@ const parsePayloadFromHTML = (html) => {
         submitBtn.disabled = state;
         submitBtn.classList.toggle('is-loading', state);
     };
+    const buildPayload = () => {
+        const formData = new FormData(form);
+        return {
+            ticker: (formData.get('ticker') || '').trim(),
+            start: formData.get('start'),
+            end: formData.get('end'),
+            lang: formData.get('lang') || document.documentElement.lang || 'en',
+        };
+    };
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
-        const formData = new FormData(form);
+        const body = buildPayload();
+        const fallbackError = getStateMessage('requestErrorMessage', 'An unexpected error occurred.');
+        if (!body.ticker || !body.start || !body.end) {
+            renderAlerts({ error: fallbackError });
+            updateSummary({ error: fallbackError });
+            return;
+        }
         try {
             setLoading(true);
-            const response = await fetch(form.action || window.location.pathname, {
+            const response = await fetchWithTimeout(FORECAST_ENDPOINT, {
                 method: 'POST',
-                body: formData,
-                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
             });
-            if (!response.ok) {
-                throw new Error('Network error');
+            const contentType = response.headers.get('Content-Type') || '';
+            const isJson = contentType.includes('application/json');
+            const data = isJson ? await response.json() : null;
+            if (!response.ok || !data || data.ok !== true || !data.data) {
+                const message = (data && data.error) || fallbackError;
+                throw new Error(message);
             }
-            const html = await response.text();
-            const payload = parsePayloadFromHTML(html);
-            if (payload) {
-                applyState(payload);
-            } else {
-                throw new Error('Invalid payload');
-            }
+            applyState(data.data);
         } catch (error) {
-            renderAlerts({ error: 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ РґР°РЅРЅС‹Рµ' });
+            if (error.name === 'AbortError') {
+                const timeoutMessage = getStateMessage('timeoutMessage', fallbackError);
+                renderAlerts({ error: timeoutMessage });
+                updateSummary({ error: timeoutMessage });
+            } else {
+                const message = error.message || fallbackError;
+                renderAlerts({ error: message });
+                updateSummary({ error: message });
+            }
             console.error(error);
         } finally {
             setLoading(false);

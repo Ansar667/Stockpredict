@@ -65,6 +65,15 @@ TRANSLATIONS = {
         "step_hint": "Adjust how many data points to skip (1 = every day).",
         "export_btn": "Download report (PDF)",
         "error_title": "Model errors",
+        "forecast_generic_error": "We could not run the forecast. Please try again later.",
+        "ticker_required_error": "Please enter a ticker.",
+        "dates_required_error": "Please provide both start and end dates.",
+        "dates_invalid_error": "Enter valid dates in the YYYY-MM-DD format.",
+        "range_invalid_error": "The start date must be earlier than the end date.",
+        "range_limit_error": "Please select a shorter date range (max {years} years).",
+        "summary_error_message": "An error occurred while building the summary. Please try again.",
+        "timeout_message": "The server is taking too long to respond. Please try again with a shorter date range.",
+        "request_error_message": "An unexpected error occurred. Please try again.",
         "range_label": "Chart range",
         "recent_title": "Recent searches",
         "recent_empty": "No recent searches yet.",
@@ -166,6 +175,15 @@ TRANSLATIONS = {
         "step_hint": "Настройте, сколько точек пропускать (1 = каждый день).",
         "export_btn": "Скачать отчёт (PDF)",
         "error_title": "Ошибки модели",
+        "forecast_generic_error": "Не удалось запустить прогноз. Попробуйте позже.",
+        "ticker_required_error": "Введите тикер.",
+        "dates_required_error": "Укажите дату начала и окончания.",
+        "dates_invalid_error": "Введите корректные даты в формате ГГГГ-ММ-ДД.",
+        "range_invalid_error": "Дата начала должна быть раньше даты окончания.",
+        "range_limit_error": "Сократите период — максимум {years} лет.",
+        "summary_error_message": "Произошла ошибка при формировании сводки. Попробуйте ещё раз.",
+        "timeout_message": "Сервер слишком долго не отвечает. Попробуйте ещё раз с более коротким периодом.",
+        "request_error_message": "Произошла ошибка. Попробуйте ещё раз.",
         "range_label": "Диапазон графика",
         "recent_title": "Недавние запросы",
         "recent_empty": "Недавние запросы отсутствуют.",
@@ -241,17 +259,160 @@ POPULAR_TICKERS = [
     {"symbol": "AMZN", "name": "Amazon"},
 ]
 
+MAX_RANGE_YEARS = 10
+MAX_RANGE_DAYS = MAX_RANGE_YEARS * 365
+
+
+def _get_ui(lang: str) -> dict[str, object]:
+    return TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+
+
+def _validate_request_params(ticker: str, start: str, end: str, ui: dict) -> tuple[str, datetime, datetime]:
+    ticker_clean = (ticker or "").strip().upper()
+    if not ticker_clean:
+        raise ValueError(ui["ticker_required_error"])
+    if not start or not end:
+        raise ValueError(ui["dates_required_error"])
+    try:
+        start_dt = datetime.strptime(start, "%Y-%m-%d")
+        end_dt = datetime.strptime(end, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        raise ValueError(ui["dates_invalid_error"])
+    if start_dt >= end_dt:
+        raise ValueError(ui["range_invalid_error"])
+    if (end_dt - start_dt).days > MAX_RANGE_DAYS:
+        raise ValueError(ui["range_limit_error"].format(years=MAX_RANGE_YEARS))
+    return ticker_clean, start_dt, end_dt
+
+
+def _build_state_payload(
+    ui: dict,
+    lang: str,
+    *,
+    rows=None,
+    summary_metrics=None,
+    summary_text=None,
+    model_metrics=None,
+    chart_bounds=None,
+    prediction_label=None,
+    prediction_column=None,
+    summary_raw=None,
+    error=None,
+):
+    prediction_column = prediction_column or PREDICTION_COLUMN
+    display_label = prediction_label or prediction_column.replace("Pred_", "") or ui["prediction_label"]
+    return {
+        "rows": rows or [],
+        "summaryMetrics": summary_metrics or [],
+        "summaryText": summary_text,
+        "summary": summary_raw,
+        "error": error,
+        "chartBounds": chart_bounds,
+        "predictionLabel": display_label,
+        "predictionColumn": prediction_column,
+        "predictionHeading": ui["table_prediction_heading"].format(model=display_label),
+        "closeLabel": ui["close_label"],
+        "noDataLabel": ui["no_data"],
+        "chartEmptyHint": ui["chart_empty_hint"],
+        "summaryPrefix": ui["summary_prefix"],
+        "modelMetrics": model_metrics or {},
+        "summaryErrorMessage": ui["summary_error_message"],
+        "timeoutMessage": ui["timeout_message"],
+        "requestErrorMessage": ui["request_error_message"],
+        "lang": lang,
+    }
+
+
+def _generate_forecast_bundle(ticker: str, start: str, end: str, lang: str) -> dict:
+    ui = _get_ui(lang)
+    ticker_clean, *_ = _validate_request_params(ticker, start, end, ui)
+    df, summary, model_metrics = predict_stock(ticker_clean, start, end)
+    df = df.reset_index().rename(columns={"index": "Date"})
+    df["Date"] = df["Date"].astype(str)
+
+    expected_columns = ["Date", "Close", "Pred_LSTM", "Pred_XGB", "Pred_RF"]
+    missing_columns = [col for col in expected_columns if col not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Data is missing required columns: {', '.join(missing_columns)}.")
+
+    prediction_column = PREDICTION_COLUMN
+    prediction_label = prediction_column.replace("Pred_", "")
+
+    table = df.to_dict(orient="records")
+
+    chart_bounds = None
+    close_values = [row.get("Close") for row in table if isinstance(row.get("Close"), (int, float))]
+    if close_values:
+        close_min = float(min(close_values))
+        close_max = float(max(close_values))
+        close_range = max(close_max - close_min, 1.0)
+        padding = max(close_range * 0.25, close_max * 0.01)
+        chart_bounds = {"min": close_min - padding, "max": close_max + padding}
+
+    summary_metrics = []
+    if table:
+        last_row = table[-1]
+        summary_metrics = [
+            {"label": ui["close_label"], "value": last_row.get("Close")},
+            {
+                "label": prediction_label or ui["prediction_label"],
+                "value": last_row.get(prediction_column),
+            },
+        ]
+
+    summary_text = None
+    if summary_metrics:
+        close_val = summary_metrics[0].get("value")
+        pred_val = summary_metrics[1].get("value") if len(summary_metrics) > 1 else None
+        if close_val is not None and pred_val is not None:
+            summary_text = ui["summary_template"].format(
+                close=f"{close_val:.2f}",
+                model=prediction_label or ui["prediction_label"],
+                pred=f"{pred_val:.2f}",
+            )
+
+    state_payload = _build_state_payload(
+        ui,
+        lang,
+        rows=table,
+        summary_metrics=summary_metrics,
+        summary_text=summary_text,
+        model_metrics=model_metrics,
+        chart_bounds=chart_bounds,
+        prediction_label=prediction_label,
+        prediction_column=prediction_column,
+        summary_raw=summary,
+        error=None,
+    )
+
+    return {
+        "table": table,
+        "summary_metrics": summary_metrics,
+        "summary_text": summary_text,
+        "summary": summary,
+        "model_metrics": model_metrics,
+        "chart_bounds": chart_bounds,
+        "prediction_label": prediction_label,
+        "prediction_column": prediction_column,
+        "state": state_payload,
+    }
+
 
 def resolve_language():
     lang = session.get("lang", "en")
     lang_query = request.args.get("lang")
     lang_form = request.form.get("lang")
+    json_payload = request.get_json(silent=True)
+    lang_json = json_payload.get("lang") if isinstance(json_payload, dict) else None
     if lang_query in TRANSLATIONS:
         session["lang"] = lang_query
         return lang_query
     if lang_form in TRANSLATIONS:
         session["lang"] = lang_form
         return lang_form
+    if lang_json in TRANSLATIONS:
+        session["lang"] = lang_json
+        return lang_json
     return lang
 
 
@@ -271,113 +432,60 @@ def index():
 
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
-    table = None
-    summary = None
-    error = None
-    chart_data = None
-    chart_bounds = None
-    summary_metrics = None
-    prediction_label = None
-    prediction_column = None
-    model_metrics = None
-
     lang = resolve_language()
-    ui = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+    ui = _get_ui(lang)
+    error = None
+    result: dict[str, object] = {}
 
     if request.method == "POST":
-        ticker = request.form.get("ticker", "").upper().strip()
+        ticker = request.form.get("ticker")
         start = request.form.get("start")
         end = request.form.get("end")
 
         try:
-            if not ticker:
-                raise ValueError("Введите тикер.")
-
-            df, summary, model_metrics = predict_stock(ticker, start, end)
-            df = df.reset_index().rename(columns={"index": "Date"})
-            df["Date"] = df["Date"].astype(str)
-
-            expected_columns = ["Date", "Close", "Pred_LSTM", "Pred_XGB", "Pred_RF"]
-            missing_columns = [col for col in expected_columns if col not in df.columns]
-            if missing_columns:
-                raise ValueError(f"Нет данных для отображения ({', '.join(missing_columns)}).")
-
-            prediction_column = PREDICTION_COLUMN
-            prediction_label = prediction_column.replace("Pred_", "")
-
-            table = df.to_dict(orient="records")
-
-            close_values = [row.get("Close") for row in table if isinstance(row.get("Close"), (int, float))]
-            threshold = None
-            bounds_min = None
-            bounds_max = None
-            if close_values:
-                close_min = float(min(close_values))
-                close_max = float(max(close_values))
-                close_range = max(close_max - close_min, 1.0)
-                threshold = close_range * 2.0
-                padding = max(close_range * 0.25, close_max * 0.01)
-                bounds_min = close_min - padding
-                bounds_max = close_max + padding
-                chart_bounds = {"min": bounds_min, "max": bounds_max}
-
-            def sanitize(pred_value, ref_close):
-                if pred_value is None or ref_close is None or threshold is None:
-                    return pred_value
-                if abs(pred_value - ref_close) > threshold:
-                    return None
-                if bounds_min is not None and bounds_max is not None:
-                    return max(bounds_min, min(bounds_max, pred_value))
-                return pred_value
-
-            chart_data = []
-            for row in table:
-                close_val = row.get("Close")
-                chart_data.append(
-                    {
-                        "date": str(row.get("Date")),
-                        "close": close_val,
-                        "prediction": sanitize(row.get(prediction_column), close_val),
-                    }
-                )
-
-            if table:
-                last_row = table[-1]
-                summary_metrics = [
-                    {"label": ui["close_label"], "value": last_row.get("Close")},
-                    {
-                        "label": prediction_label or ui["prediction_label"],
-                        "value": last_row.get(prediction_column),
-                    },
-                ]
-
+            result = _generate_forecast_bundle(ticker, start, end, lang)
         except ValueError as exc:
             error = str(exc)
         except Exception as exc:
             app.logger.exception("Prediction failed for %s", ticker, exc_info=exc)
-            error = "Не удалось построить прогноз. Попробуйте другой период или повторите позже."
-    summary_text = None
-    if summary_metrics:
-        close_val = summary_metrics[0].get("value")
-        pred_val = summary_metrics[1].get("value") if len(summary_metrics) > 1 else None
-        if close_val is not None and pred_val is not None:
-            summary_text = ui["summary_template"].format(
-                close=f"{close_val:.2f}",
-                model=prediction_label or ui["prediction_label"],
-                pred=f"{pred_val:.2f}",
-            )
+            error = ui["forecast_generic_error"]
+
+    table = result.get("table")
+    summary_metrics = result.get("summary_metrics")
+    summary_text = result.get("summary_text")
+    summary = result.get("summary")
+    model_metrics = result.get("model_metrics")
+    chart_bounds = result.get("chart_bounds")
+    prediction_label = result.get("prediction_label") or ui["prediction_label"]
+    prediction_column = result.get("prediction_column") or PREDICTION_COLUMN
+
+    state_payload = dict(result.get("state") or {})
+    if not state_payload:
+        state_payload = _build_state_payload(
+            ui,
+            lang,
+            rows=table,
+            summary_metrics=summary_metrics,
+            summary_text=summary_text,
+            model_metrics=model_metrics,
+            chart_bounds=chart_bounds,
+            prediction_label=prediction_label,
+            prediction_column=prediction_column,
+            summary_raw=summary,
+            error=error,
+        )
+    state_payload["error"] = error
 
     return render_template(
         "dashboard.html",
         table=table,
         summary=summary,
         error=error,
-        chart_data=chart_data,
         summary_metrics=summary_metrics,
         model_metrics=model_metrics,
         popular_tickers=POPULAR_TICKERS,
         chart_bounds=chart_bounds,
-        prediction_label=prediction_label or ui["prediction_label"],
+        prediction_label=prediction_label,
         prediction_column=prediction_column,
         ui=ui,
         lang=lang,
@@ -385,7 +493,9 @@ def dashboard():
         page_title=ui["title"],
         active_route="dashboard",
         summary_text=summary_text,
+        state_payload=state_payload,
     )
+
 
 def _create_chart_image(df, prediction_label):
     chart_stream = io.BytesIO()
@@ -510,28 +620,52 @@ def _build_pdf(ticker, start, end, summary_text, df, prediction_label, metrics):
     return buffer
 
 
+@app.post("/run_forecast")
+def run_forecast_api():
+    lang = resolve_language()
+    ui = _get_ui(lang)
+    payload = request.get_json(silent=True)
+    payload = payload if isinstance(payload, dict) else {}
+    ticker = payload.get("ticker") or request.form.get("ticker")
+    start = payload.get("start") or request.form.get("start")
+    end = payload.get("end") or request.form.get("end")
+    try:
+        result = _generate_forecast_bundle(ticker, start, end, lang)
+        response_payload = dict(result.get("state") or {})
+        response_payload["error"] = None
+        return jsonify({"ok": True, "data": response_payload})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        app.logger.exception("Forecast API failed for %s", ticker, exc_info=exc)
+        return jsonify({"ok": False, "error": ui["forecast_generic_error"]}), 500
+
+
 @app.post("/export_pdf")
 def export_pdf():
-    ticker = request.form.get("ticker", "").upper().strip()
+    lang = resolve_language()
+    ui = _get_ui(lang)
+    ticker = request.form.get("ticker")
     start = request.form.get("start")
     end = request.form.get("end")
-    if not ticker or not start or not end:
-        return jsonify({"error": "Укажите тикер и период для отчета."}), 400
-
     try:
-        df, summary, metrics = predict_stock(ticker, start, end)
+        ticker_clean, _, _ = _validate_request_params(ticker, start, end, ui)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        df, summary, metrics = predict_stock(ticker_clean, start, end)
         df = df.reset_index().rename(columns={"index": "Date"})
         df["Date"] = df["Date"].astype(str)
 
         prediction_label = PREDICTION_COLUMN.replace("Pred_", "")
-        pdf_stream = _build_pdf(ticker, start, end, summary, df, prediction_label, metrics)
-        filename = f"report_{ticker}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"
+        pdf_stream = _build_pdf(ticker_clean, start, end, summary, df, prediction_label, metrics)
+        filename = f"report_{ticker_clean}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"
         return send_file(pdf_stream, as_attachment=True, download_name=filename, mimetype="application/pdf")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        app.logger.exception("Failed to export PDF for %s", ticker, exc_info=exc)
-        return jsonify({"error": "Не удалось сформировать отчет."}), 500
+        app.logger.exception("Failed to export PDF for %s", ticker_clean, exc_info=exc)
+        return jsonify({"error": ui["forecast_generic_error"]}), 500
 
 
 @app.get("/search_tickers")
